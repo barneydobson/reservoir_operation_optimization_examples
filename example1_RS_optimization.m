@@ -1,177 +1,143 @@
 clear;clc;
 %% Load data
-storage_cap = 5000; %storage capacity
-flows = dlmread('example_data.txt'); %load large set of flows
-flows = flows(1:364*1,2); %extract first year (for example)
-flows = sum(reshape(flows,7,numel(flows)/7))'; %aggregate flows to weekly (for speed)
-T = size(flows,1);
-storage_initial = 500;
-demand = ones(T,1).*40*7; %Daily demand 40, weekly 40*7
-tol = 10e-6;
-release_cap = 40*7;
+% Load river flow data:
+flows = dlmread('example_data.txt');  % load time series of daily flow records
+
+% Define simualtion scenario:
+flows = flows(1:364*10,2); % extract first year (for example)
+I     = sum(reshape(flows,7,numel(flows)/7))'; % aggregate flows to weekly (for speed)
+T     = size(I,1)       ; % Length of simulation period (weeks)
+d     = ones(T,1).*40*7 ; % Time series of (constant) water demand
+S_ini = 500 ; % Initial storage
+
+% Define other system parameters
+S_cap = 5000; %storage capacity
 
 
 %% Linear programming
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Takes the form min(f'*x), subject to A*x <= b, where x are design 
-% variables
-% 
-% Design variables:
-% [u1,u2,u3,...,uT,w1,w2,w3,...wT], u's are releases and w's are spills
-% n.b. spills must be treated as design variables since they vary based on 
-% the choice of u.
-% 
-% Objective:
-% -Deficit, [d1 - u1 + d2 - u2 + ... + dT - uT], d's are demands
-% -Since demands are constants we simply need to minimize -u
-% -To prevent unnecessary spill we must penalise it by a value greater than
-% the tolerance of the solver
-% 
-% Constraints:
-% -Mass balance, St = St-1 + It - ut - wt, S is storage and I's are inflows
-% -St varies based on the choice of ut, however we can formulate this
-% without having to treat it as a design variable as we did with wt
-%
-% -Timestep 1: u1 + w1 <= S0 + I1, S0 is storage_initial
-% -Timestep 2: u2 + w2 + u1 + w2 <= S0 + I1 + I2
-% ...
-% -Timestep T: cumsum(u) + cumsum(w) <= S0 + cumsum(I)
-%
-% -To get this into the form A*x <= b, we must put use a lower triangular
-% matrix for 'x' to replicate the cumsum behaviour for u and w.
-%
-% No oversupply:
-% -ut <= dt
-% -To get this into the form A*x <= we simply need the 'eye' function to
-% create a diagonal of ones that represents the releases
-% 
-% %Spill:
-% wt = max(0,Scap - St), Scap is storage_cap
-% -Again, S varies based on choice of u, so we formulate this
-% differently. The following works provided spills are to be minimized.
-% (which they are by their positive value in the objective function).
-% -Timestep 1: u1 + w1 >= S0 + I1 - Scap
-% ...
-% -Timestep T: cumsum(u) + cumsum(w) >= S0 + cumsum(I) - Scap
-% -As with mass balance, we need to use the lower triangular matrix to
-% replicate the cumsum behaviour for u and w. We also need to flip the
-% signs since A*x <= b and not A*x >= b.
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-%Objective function
-f = [
-    -ones(T,1); %Decisions
-    ((T:-1:1).*tol)' %Spills
-    ];
+% LP can only solve problems in the form:
+%        min(f'*x)
+% subject to A*x <= b
+%            x<=UB
+%            x>=LB
+% where x are the decision variables.
+% In order to apply LP, we then need to reformulate our original
+% reservoir optimisation problem in such a way that it fits the LP
+% form above. This is possible with some level of approximation,
+% given that the actual problem is not linear (for example the objective
+% function uses squared deficits). The process of defining 
+% <f,A,b,LB,UB> for our problem is set out in the function
+% 'define_LP_matrices.m' (see the code and comments in there for more info)
+tol   = 10e-6 ; % 
+R_cap = d(1)  ; % maximum allowed release outflow
+[f,A,b,LB,UB ] = define_LP_matrices(S_ini,I,d,S_cap,R_cap,tol) ;
 
-%Constraints
+% Run optimization using Matlab LP solver:
+xopt_LP     = linprog(f',A,b,[],[],LB,UB,[]);
+% Extract time series of release and spills:
+u_LP = xopt_LP(1:T)       ; % optimal Release Sequence
+w_LP   = xopt_LP(T+1:end) ; % sequence of spills
+% Use mass balance equation to derive the time series of storage:
+S_LP = S_ini + cumsum(I) - cumsum(u_LP) - cumsum(w_LP);
+% Compute objective value associated to the LP solution:
+J_LP = sum( ( d - u_LP ).^2 ) ;
 
-%Mass balance
-lower_triangular = zeros(T);
-for i = 1 : T
-    lower_triangular(i,1:i) = 1;
-end
-A = [lower_triangular,lower_triangular]; %releases + spills up to a given time has to be less than initial storage plus flows up to a given time
-b = storage_initial + cumsum(flows);
-%No oversupply
-A = [A;[eye(T),zeros(T)]]; %releases <= demands
-b = [b;demand];
-%Spill
-A = [A;[-lower_triangular,-lower_triangular]]; %releases + spills up to a given time must be more than initial storage plus flows up to a given time minus storage cap. Since spills are to be minimized (positive number in objective function) - they will be used to make the difference but no more
-b = [b;(storage_cap - (storage_initial + cumsum(flows)))];
-%Upper and lower bounds
-UB = [ones(T,1).*release_cap;flows];
-LB = zeros(T*2,1);
-
-%Run optimization
-xopt_lp = linprog(f',A,b,[],[],LB,UB,[]);
-releases_lp = xopt_lp(1:T);
-spills_lp = xopt_lp(T+1:end);
-%Following the mass balance present above we can create storage
-storage_lp = storage_initial + cumsum(flows) - cumsum(releases_lp) - cumsum(spills_lp);
-%Plot results
+% Plot results:
 subplot(4,1,1);
-plot(flows); hold on;xlabel('time (weeks)');ylabel('inflow (Ml/week)');
+plot(I)       ; hold on; xlabel('time (weeks)'); ylabel('inflow (Ml/week)');
 subplot(4,1,2);
-plot(releases_lp); hold on;xlabel('time (weeks)');ylabel('release (Ml/week)');
+plot(u_LP)    ; hold on; xlabel('time (weeks)'); ylabel('release (Ml/week)');
 subplot(4,1,3);
-plot(demand - releases_lp); hold on;xlabel('time (weeks)');ylabel('deficit (Ml/week)');
+plot(d - u_LP); hold on; xlabel('time (weeks)'); ylabel('deficit (Ml/week)');
+legend([ 'LP (J= ' num2str(J_LP) ')'])
 subplot(4,1,4);
-plot(storage_lp); hold on;xlabel('time (weeks)');ylabel('storage (Ml)');
-%We see that the start of the timeseries has very low flows and so the
-%storage gets drawn down causing large deficit. Although the flows during 
-%weeks 8 to 20 replenish the storage, they are not sufficient and again a
-%large deficit occurs during weeks 20-40. After week 40 the flows are high
-%and the storage can restore.
+plot(S_LP)    ; hold on; xlabel('time (weeks)'); ylabel('storage (Ml)');
+% We see that the start of the timeseries has very low flows and so the
+% storage gets drawn down causing large deficit. Although the inflows during 
+% weeks 8 to 20 replenish the storage, they are not sufficient and again a
+% large deficit occurs during weeks 20-40. After week 40 the flows are high
+% and the storage can restore.
 
 %% Quadratic programming
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Takes the form min(0.5*x'*H*x + f'*x), subject to A*x <= b
-% 
-% Design variables and constraints are the same as linear programming
-%
-% Objective is now:
-% Deficit, [(d1 - u1)^2 + (d2 - u2)^2 + ... + (dT - uT)^2]
-%  = [d1^2 + d2^2 + .. dT^2] + [u1^2 + u2^2 + .. + uT^2] - [2*d1*u1 +
-%  2*d2*u2 + .. + 2*dT*uT]
-% -The d^2 part of this is constant and so can be omitted.
-% -The u^2 part of this can be accounted by putting 4's in the H matrix.
-% Because it is a square matrix we must use the eye function.
-% -The LP objective was -u, the linear part of this objective is 2*d*u,
-% thus we can just use the LP objective by multiplying it by 4*d.
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-%Create new objective
-f(1:T) = f(1:T)*4.*demand;
-H = [2.*eye(T),zeros(T);zeros(T,T*2)];
-%Run optimization
-xopt_qp = quadprog(H,f',A,b,[],[],LB,UB,[]);
-releases_qp = xopt_qp(1:T);
-spills_qp = xopt_qp(T+1:end);
-storage_qp = storage_initial + cumsum(flows) - cumsum(releases_qp) - cumsum(spills_qp);
-%Plot results
+% QP can only solve problems in the form:
+%        min(0.5*x'*H*x + f'*x)
+% subject to A*x <= b
+%            x<=UB
+%            x>=LB
+% The process of defining <f,A,b,LB,UB> for our problem is set out in the
+% function 'define_QP_matrices' (see the code and comments in there for
+% more info). Notice that in this case, given that the actual problem has a
+% quadratic objective function, the QP formulation is actually consistent
+% with the original problem formulation.
+tol   = 10e-6 ; %
+R_cap = d(1)  ; % maximum allowed release outflow
+[f,H,A,b,LB,UB ] = define_QP_matrices(S_ini,I,d,S_cap,R_cap,tol);
+
+% Run optimization using Matlab QP solver:
+xopt_QP = quadprog(H,f',A,b,[],[],LB,UB,[]);
+% Extract time series of release and spills:
+u_QP  = xopt_QP(1:T)    ; % optimal Release Sequence
+w_QP  = xopt_QP(T+1:end); % sequence of spills
+% Use mass balance equation to derive time series of storage:
+S_QP  = S_ini + cumsum(I) - cumsum(u_QP) - cumsum(w_QP);
+% Compute objective value associated to the QP solution:
+J_QP = sum( ( d - u_QP ).^2 ) ;
+
+% Plot results:
 subplot(4,1,2);
-plot(releases_qp); 
+plot(u_QP); 
 subplot(4,1,3);
-plot(demand - releases_qp); 
+plot(d - u_QP); 
+legend([ 'LP (J= ' num2str(J_LP) ')'],[ 'QP (J= ' num2str(J_QP) ')']);
 subplot(4,1,4);
-plot(storage_qp);
-%Instead we see a completely different picture. In an attempt to minimize
-%the squared deficits the deficit is 'spread out' over a long period. This
-%causes more days of deficit, but a smaller maximum deficit.
+plot(S_QP);
+% QP solution behaves quite differently from LP solution.
+% In an attempt to minimize the squared deficits, QP reduces releases all
+% along the simulation period, so that deficits are 'spread out' over a
+% long period. This causes more days of deficit, but a smaller maximum
+% deficit. The optimal objective function for QP is thus lower than LP.
 
 %% GA
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 % We could use a GA to solve the exact same problem as QP, (you can try
 % this with ga(@(x) 0.5*x*H*x' + f'*x',numel(xopt_qp),A,b,[],[],LB,UB).
-% However QP is efficient because of it's ability to exploit constraints,
-% something that GA's do not do. Instead we should use a simulation
-% approach that imposes constraints 'on the fly', so that the GA doesn't 
-% have to waste time finding the feasible region. We will use the function
-% 'simulate_releases' - see the .m file.
-%
-% The optimization also outputs 'target_releases_ga' instead of 
-% 'releases_ga' because the constraints are applied within the simulation
-% function, thus the output from the GA is not necessarily feasible (and so
-% we must simulate the target releases to determine the actual releases).
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-target_releases_ga = ga(@(x) simulate_releases(x,demand,flows,storage_cap,storage_initial),T)';
-[~,storage_ga,releases_ga,spills_ga] = simulate_releases(target_releases_ga,demand,flows,storage_cap,storage_initial);
-%Plot results
-subplot(4,1,2);
-plot(releases_ga); legend('LP','QP','GA');
-subplot(4,1,3);
-plot(demand' - releases_ga); legend('LP','QP','GA');
-subplot(4,1,4);
-plot(storage_ga);legend('LP','QP','GA');
+% However QP is efficient because of its ability to exploit the linear nature
+% of the constraints set, something that GAs do not do. 
+% Instead we should use a simulation approach that imposes constraints 'on
+% the fly', so that the GA does not waste time in finding the feasible
+% region. We will use the function 'simulate_releases' to implement
+% these constraints, and compute the value of the objective function for a
+% given choice of the release sequence (u).
+% We then use the Matlab GA function to optimise the release sequence:
+u_GA = ga(@(u) simulate_RS(u,d,I,S_cap,S_ini),T)';
 
-%We see that the GA produces similar results to QP (which we would expect
-%because the simulate_releases.m function uses a quadratic objective). But
-%what happens if you use a longer time series? Try solving a release 
-%sequence for 10 years of data instead of 1 (change line 5 to: 
-%flows = flows(1:364*10,2)). 
-%
-%The GA now performs quite a bit worse than the QP. This is because
-%optimization gets harder the more variables there are. QP is very
-%efficient at using constraints to navigate these large problem spaces, but
-%the GA does not get these benefits.
+% Before we look at the optimised release sequence produced by 'ga', we
+% need to apply the 'simulate_RS' function one last time in order to ensure
+% that the u_GA is actually feasible (in fact, the output from the 'ga' is
+% not necessarily feasible, given that the feasibility checks are performed
+% by 'simulate_RS'):
+[J_GA,S_GA,u_GA,w_GA] = simulate_RS(u_GA,d,I,S_cap,S_ini);
+
+% Plot results
+subplot(4,1,2);
+plot(u_GA,'o'); legend('LP','QP','GA');
+subplot(4,1,3);
+plot(d - u_GA,'o'); legend('LP','QP','GA');
+legend([ 'LP (J= ' num2str(J_LP) ')'],[ 'QP (J= ' num2str(J_QP) ')'],[ 'GA (J= ' num2str(J_GA) ')']);
+subplot(4,1,4);
+plot(S_GA,'o');legend('LP','QP','GA');
+
+% We see that the GA produces similar results to QP (which we would expect
+% because the simulate_releases.m function uses a quadratic objective). 
+
+% But what happens if you use a longer time series? Try solving a release 
+% sequence for 10 years of data instead of 1 (change line above to: 
+% flows = flows(1:364*10,2)). The GA now performs quite a bit worse than the QP. This is because
+% optimization gets harder the more variables there are. QP is very
+% efficient at using constraints to navigate these large problem spaces, but
+% the GA does not get these benefits.
+
+
+
