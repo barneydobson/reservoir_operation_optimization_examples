@@ -163,7 +163,7 @@ discr_u = linspace(0,R_cap,grid_size); % Discretise releases
 % Determine optimal value function
 H = opt_VF(I, d, g_end, discr_s, discr_u, S_cap); 
 % Simulate value function over time period
-[J_DDP,S_DDP,u_DDP,w_DDP] = simulate_VF(H,d,I,S_cap,S_ini,discr_u,discr_s); 
+[J_DDP,S_DDP,u_DDP,w_DDP] = simulate_RS_VF(H,d,I,S_cap,S_ini,discr_u,discr_s); 
 
 % Plot results
 subplot(4,1,2);
