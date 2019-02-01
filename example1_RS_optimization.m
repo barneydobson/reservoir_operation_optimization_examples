@@ -111,6 +111,7 @@ plot(S_QP);
 % these constraints, and compute the value of the objective function for a
 % given choice of the release sequence (u).
 % We then use the Matlab GA function to optimise the release sequence:
+rng(100000000); % set seed
 u_GA = ga(@(u) simulate_RS(u,d,I,S_cap,S_ini),T)';
 
 % Before we look at the optimised release sequence produced by 'ga', we
@@ -138,6 +139,52 @@ plot(S_GA,'o');legend('LP','QP','GA');
 % optimization gets harder the more variables there are. QP is very
 % efficient at using constraints to navigate these large problem spaces, but
 % the GA does not get these benefits.
+
+%% DDP
+
+% We can exploit the dynamic nature of the RS optimization problem to use
+% DDP to estimate the value function (H) over the time-series. As we
+% describe in the review, the storage and the decisions are discretised
+% (discr_s and discr_u). We call 'opt_VF.m' to pass backwards along the
+% entire time-series finding the optimal decision for each storage state at
+% each timestep. For each combination of storage and releases, this
+% function will find the optimal decision (i.e. the decision that minimises
+% the cost + the VF after that decision is implemented) for each timestep
+% (performed by solve_VF.m).
+%
+% A 'forward pass' is then performed by simulate_VF - when the VF is
+% evaluated over each time-step of the inflow series, simulation the
+% storage.
+
+g_end = 0; % No costs defined beyond final timestep
+grid_size = 500; % As long as you're not in the high 000's this shouldn't be too slow
+discr_s = linspace(0,S_cap,grid_size); % Discretise storage
+discr_u = linspace(0,R_cap,grid_size); % Discretise releases
+% Determine optimal value function
+H = opt_VF(I, d, g_end, discr_s, discr_u, S_cap); 
+% Simulate value function over time period
+[J_DDP,S_DDP,u_DDP,w_DDP] = simulate_VF(H,d,I,S_cap,S_ini,discr_u,discr_s); 
+
+% Plot results
+subplot(4,1,2);
+plot(u_DDP,'x'); legend('LP','QP','GA','DDP');
+subplot(4,1,3);
+plot(d - u_DDP,'x'); legend('LP','QP','GA','DDP');
+legend([ 'LP (J= ' num2str(J_LP) ')'],[ 'QP (J= ' num2str(J_QP) ')'],[ 'GA (J= ' num2str(J_GA) ')'],[ 'DDP (J= ' num2str(J_DDP) ')']);
+subplot(4,1,4);
+plot(S_DDP,'x');legend('LP','QP','GA','DDP');
+
+% We see that DDP is just as good as GA and QP!
+
+% Try running it with a coarser grid (say 10) and you can see how the
+% solution degrades. 
+
+% If you repeat the entire experiment a few times with
+% different seeds you will also see that DDP is more reliable than GA.
+
+% When you are solving the 10 year problem - observe that, while the GA
+% solution degrades, the DDP solution does not! This is because DDP is
+% insensitive to simulation length.
 
 
 
