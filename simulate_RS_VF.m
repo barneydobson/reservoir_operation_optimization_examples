@@ -14,7 +14,7 @@ w = nan(T,1);
 S = nan(T+1,1); S(1) = S_ini;
 for t = 1 : T
     sys_param.d = d(t) ;
-    [~,idx_u] = solve_DDP( H(:,t+1), S(t), I(t) , sys_param ) ;
+    [~,idx_u] = solve_VF( H(:,t+1), S(t), I(t) , sys_param ) ;
     u(t) = discr_u(idx_u(end));
     
     u(t) = min(d(t),u(t)) ; % release must not exceed the demand
