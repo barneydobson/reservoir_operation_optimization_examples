@@ -1,4 +1,4 @@
-function [f,A,b,LB,UB ] = define_LP_matrices(S_ini,I,d,S_cap,R_cap,tol)
+function [f,A,b,LB,UB ] = define_LP_matrices(S_ini,I,d,S_cap,tol)
 %
 % [f,A,b,LB,UB ] = define_LP_matrices(S_ini,I,d,S_cap,R_cap,tol)
 %
@@ -89,5 +89,5 @@ A = [A;[-lower_triangular,-lower_triangular]]; %releases + spills up to a given 
 b = [b;(S_cap - (S_ini + cumsum(I)))];
 
 % Last, we define upper and lower bounds of u and w:
-UB = [ones(T,1).*R_cap;I];
+UB = [d;I];
 LB = zeros(T*2,1);
