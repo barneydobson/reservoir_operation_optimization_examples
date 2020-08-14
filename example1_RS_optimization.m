@@ -30,8 +30,7 @@ S_cap = 5000; %storage capacity
 % <f,A,b,LB,UB> for our problem is set out in the function
 % 'define_LP_matrices.m' (see the code and comments in there for more info)
 tol   = 10e-6 ; % 
-R_cap = d(1)  ; % maximum allowed release outflow
-[f,A,b,LB,UB ] = define_LP_matrices(S_ini,I,d,S_cap,R_cap,tol) ;
+[f,A,b,LB,UB ] = define_LP_matrices(S_ini,I,d,S_cap,tol) ;
 
 % Run optimization using Matlab LP solver:
 xopt_LP     = linprog(f',A,b,[],[],LB,UB,[]);
@@ -72,8 +71,7 @@ plot(S_LP)    ; hold on; xlabel('time (weeks)'); ylabel('storage (Ml)');
 % quadratic objective function, the QP formulation is actually consistent
 % with the original problem formulation.
 tol   = 10e-6 ; %
-R_cap = d(1)  ; % maximum allowed release outflow
-[f,H,A,b,LB,UB ] = define_QP_matrices(S_ini,I,d,S_cap,R_cap,tol);
+[f,H,A,b,LB,UB ] = define_QP_matrices(S_ini,I,d,S_cap,tol);
 
 % Run optimization using Matlab QP solver:
 xopt_QP = quadprog(H,f',A,b,[],[],LB,UB,[]);
@@ -159,7 +157,7 @@ plot(S_GA,'o');legend('LP','QP','GA');
 g_end = 0; % No costs defined beyond final timestep
 grid_size = 500; % As long as you're not in the high 000's this shouldn't be too slow
 discr_s = linspace(0,S_cap,grid_size); % Discretise storage
-discr_u = linspace(0,R_cap,grid_size); % Discretise releases
+discr_u = linspace(0,max(d),grid_size); % Discretise releases
 % Determine optimal value function
 H = opt_VF(I, d, g_end, discr_s, discr_u, S_cap); 
 % Simulate value function over time period
