@@ -1,4 +1,4 @@
-function [f,H,A,b,LB,UB ] = define_QP_matrices(S_ini,I,d,S_cap,R_cap,tol)
+function [f,H,A,b,LB,UB ] = define_QP_matrices(S_ini,I,d,S_cap,tol)
 %
 % [f,H,A,b,LB,UB ] = define_QP_matrices(S_ini,I,d,S_cap,R_cap,tol)
 %
@@ -30,17 +30,16 @@ function [f,H,A,b,LB,UB ] = define_QP_matrices(S_ini,I,d,S_cap,R_cap,tol)
 % Now:
 % - The d^2 part of the above vector is constant and so can be omitted (it
 % does not affect minimisation)
-% - The u^2 part can be accounted by putting 4's in the H matrix.
-% - The 2*d*u part is the same as the LP objective multiplied by 4*d 
+% - The u^2 part can be accounted by putting 2's in the H matrix.
+% - The 2*d*u is just releases multiplied by -2*d in the f matrix
 % - To prevent unnecessary spill we add to our objective function 
 % a penalisation of the w (by a value greater than the tolerance of the
 % solver )
 T = length(I) ;
 f = [
-    -ones(T,1);      % Releases
+    - 2.*d;      % Releases
     ((T:-1:1).*tol)' % Spills
     ];
-f(1:T) = f(1:T)*4.*d;
 H = [2.*eye(T),zeros(T);zeros(T,T*2)];
 
 % Definition of the constraints (A,b,LB,UB):
@@ -95,5 +94,5 @@ A = [A;[-lower_triangular,-lower_triangular]]; %releases + spills up to a given 
 b = [b;(S_cap - (S_ini + cumsum(I)))];
 
 % Last, we define upper and lower bounds of u and w:
-UB = [ones(T,1).*R_cap;I];
+UB = [d;I];
 LB = zeros(T*2,1);
