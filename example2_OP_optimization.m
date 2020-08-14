@@ -31,8 +31,7 @@ S_cap = 5000; % storage capacity
 % test period (I_2). This will give usthe maximum attainable performance
 % possible:
 tol   = 10e-6 ; % 
-R_cap = d(1)  ; % maximum allowed release outflow
-[f,H,A,b,LB,UB ] = define_QP_matrices(S_ini,I_2,d,S_cap,R_cap,tol);
+[f,H,A,b,LB,UB ] = define_QP_matrices(S_ini,I_2,d,S_cap,tol);
 xopt_QP_2  = quadprog(H,f',A,b,[],[],LB,UB,[]);
 opt_u_QP_2 = xopt_QP_2(1:T);
 opt_w_QP_2 = xopt_QP_2(T+1:end);
@@ -54,8 +53,7 @@ plot(opt_S_QP_2)    ; hold on; xlabel('time (weeks)');ylabel('storage (Ml)');
 % First we must optimize relases to the calibration period, for example
 % using QP (this is just as in previous example):
 tol   = 10e-6 ; % 
-R_cap = d(1)  ; % maximum allowed release outflow
-[f,H,A,b,LB,UB ] = define_QP_matrices(S_ini,I_1,d,S_cap,R_cap,tol);
+[f,H,A,b,LB,UB ] = define_QP_matrices(S_ini,I_1,d,S_cap,tol);
 xopt_QP  = quadprog(H,f',A,b,[],[],LB,UB,[]);
 u_QP_1 = xopt_QP(1:T);
 w_QP_1 = xopt_QP(T+1:end);
